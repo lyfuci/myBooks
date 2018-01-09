@@ -748,3 +748,49 @@ public class StubHumanResourceService implements HumanResourceService {
 您可以使用mvn install来创建一个WAR文件。 如果您部署应用程序（到Tomcat，Jetty等），并将浏览器指向此位置，您将看到生成的WSDL。 这个WSDL已经准备好被客户端使用，比如soapUI或者其他的SOAP框架。
 
 本教程结束。 教程代码可以在Spring-WS的完整发行版中找到。 下一步就是查看作为发行版一部分的回声示例应用程序。 之后，看航空公司的样本，这有点复杂，因为它使用JAXB，WS-Security，Hibernate和事务服务层。 最后，您可以阅读参考文档的其余部分。
+
+
+
+### 二、参考文档
+
+参考文档的这一部分详细介绍了构成Spring Web Services的各个组件。 包括了[一章](https://docs.spring.io/spring-ws/docs/2.4.2.RELEASE/reference/#common)讨论客户端和服务器端的通用部分，一章讨论[编写服务器端WS](https://docs.spring.io/spring-ws/docs/2.4.2.RELEASE/reference/#server)，一章讨论如何在[客户端使用Web服务](https://docs.spring.io/spring-ws/docs/2.4.2.RELEASE/reference/#client)，以及一章讨论如何使用[WS-Security](https://docs.spring.io/spring-ws/docs/2.4.2.RELEASE/reference/#security)。
+
+#### 4 共用组件
+
+在本章中，我们将探讨在客户端和服务器端Spring-WS开发之间共享的组件。 这些被共享的接口和类代表了Spring-WS的构建块(building blocks)，因此即使不直接使用它们，理解它们的作用也是很重要的。
+
+##### 4.1 Web service messages
+
+###### 4.1.1 `WebServiceMessage`
+
+Spring Web Services的核心接口之一是`WebServiceMessage`。 这个接口表示一个协议不可知的XML消息。 该接口以`javax.xml.transform.Source`或`javax.xml.transform.Result`的形式提供对消息负载的访问。`Source`和`Result`是代表XML输入和输出的一种抽象抽象的标记接口。 具体实现的各种XML包装类，如下表所示。
+
+| **Source/Result implementation**         | **Wraps XML representation**             |
+| ---------------------------------------- | ---------------------------------------- |
+| `javax.xml.transform.dom.DOMSource`      | `org.w3c.dom.Node`                       |
+| `javax.xml.transform.dom.DOMResult`      | `org.w3c.dom.Node`                       |
+| `javax.xml.transform.sax.SAXSource`      | `org.xml.sax.InputSource` and `org.xml.sax.XMLReader` |
+| `javax.xml.transform.sax.SAXResult`      | org.xml.sax.ContentHandler               |
+| `javax.xml.transform.stream.StreamSource` | `java.io.File`, `java.io.InputStream`, or `java.io.Reader` |
+| `javax.xml.transform.stream.StreamResult` | `java.io.File`, `java.io.OutputStream`, or `java.io.Writer` |
+
+除了从负载读写之外，Web服务消息还可以将自己写入输出流。
+
+###### 4.1.2 SoapMessage
+
+SoapMessage是WebServiceMessage的一个子类。 它包含特定于SOAP的方法，例如获取SOAP Header，SOAP Faults等。通常，您的代码不应该依赖于SoapMessage，因为SOAP Body的内容（消息的有效内容）可以通过getPayloadSource（） 和WebServiceMessage中的getPayloadResult（）。 只有在需要执行特定于SOAP的操作（如添加标头(head)，获取附件等）时，才需要将WebServiceMessage强制转换为SoapMessage。
+
+###### 4.1.3 Message Factories
+
+具体的消息实现由WebServiceMessageFactory创建。 这个工厂可以创建一个空的消息，或者根据输入流读取消息。 WebServiceMessageFactory有两个具体的实现; 一个基于SAAJ(the SOAP with Attachments API for Java),另一个是基于Axis 2的AXIOM的AXis对象模型(AXis Object Model)。
+
+*SaajSoapMessageFactory*
+
+SaajSoapMessageFactory使用带有附件API的SOAP来创建SoapMessage实现。 SAAJ是J2EE 1.4的一部分，所以它应该在大多数现代应用程序服务器下得到支持。 以下是常用应用程序服务器提供的SAAJ版本的概述：
+
+| Application Server | **SAAJ** Version |
+| ------------------ | ---------------- |
+| BEA WebLogic 8     | 1.1              |
+| BEA WebLogic 9     | 1.1/1.21         |
+| IBM WebSphere 6    | 1.2              |
+| SUN Glassfish 1    | 1.3              |
