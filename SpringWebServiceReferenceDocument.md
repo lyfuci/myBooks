@@ -789,13 +789,14 @@ SoapMessage是WebServiceMessage的一个子类。 它包含特定于SOAP的方�
 
 SaajSoapMessageFactory使用带有附件API的SOAP来创建SoapMessage实现。 SAAJ是J2EE 1.4的一部分，所以它应该在大多数现代应用程序服务器下得到支持。 以下是常用应用程序服务器提供的SAAJ版本的概述：
 
-| Application Server | **SAAJ** Version |
-| ------------------ | ---------------- |
-| BEA WebLogic 8     | 1.1              |
-| BEA WebLogic 9     | 1.1/1.21         |
-| IBM WebSphere 6    | 1.2              |
-| SUN Glassfish 1    | 1.3              |
-=======
+| Application Server                       | **SAAJ** Version |
+| ---------------------------------------- | ---------------- |
+| BEA WebLogic 8                           | 1.1              |
+| BEA WebLogic 9                           | 1.1/1.21         |
+| IBM WebSphere 6                          | 1.2              |
+| SUN Glassfish 1                          | 1.3              |
+| 1Weblogic 9 在 **SAAJ** 1.2 实现中有一个一直的bug: 它实现了所有1.2的借口, 但是当调用接口的时候会抛出 `UnsupportedOperationException` . Spring Web Services 有一个工作区: 这个工作区在操作WebLogic 9 时使用**SAAJ** 1.1. |                  |
+
 另外，Java SE 6包含了SAAJ 1.3。 你像下面这样声明一个SaajSoapMessageFactory：
 
 ```xml
@@ -1164,5 +1165,34 @@ public DefaultWsdl11Definition orders() {
 
 <dynamic-wsdl>元素依赖于`DefaultWsdl11Definition`类。 此定义类使用`org.springframework.ws.wsdl.wsdl11.provider`包中的WSDL providers ，并在第一次请求时使用`ProviderBasedWsdl4jDefinition`生成WSDL。 如果有必要扩展其实现机制，请参考这些类的Javadoc。
 
-`DefaultWsdl11Definition`（因此，<dynamic-wsdl>标记）使用约定从XSD模式构建WSDL。 它迭代架构中找到的所有`element`元素，并为所有元素创建消息。 接下来，它为所有以定义的请求或响应后缀结束的消息创建WSDL `operation`。 默认的请求后缀是`Request`; 默认响应后缀是`Response`，尽管这些可以通过分别在<dynamic-wsdl />上设置`requestSuffix`和`responseSuffix`属性来更改。 它还可以基于操作构建`portType`, `binding`, and `service`。
->>>>>>> 添加SpringWebServiceReferenceDocument的图片两张，并且内容翻译至第五章。
+`DefaultWsdl11Definition`（`<dynamic-wsdl>`标记）按照习惯从XSD schema构建 WSDL。 它迭代schema中找到的所有`element`元素，并为所有`element`创建消息。然后，它为所有以定义的请求或响应后缀结束的消息创建WSDL `operation`。 默认的请求后缀是`Request`; 默认响应后缀是`Response`，这些也可以分别通过在<dynamic-wsdl />上设置`requestSuffix`和`responseSuffix`属性来更改。 它还可以基于操作构建`portType`, `binding`, and `service`。
+
+例如，如果我们的`Orders.xsd` schema定义了`GetOrdersRequest`和`GetOrdersResponse`元素，那么`<dynamic-wsdl>`将创建一个`GetOrdersRequest`和`GetOrdersResponse`消息，以及一个`GetOrders`操作，该操作被放入`Orders`端口类型(port type)中。
+
+如果你想使用多个schema，可以使用include或import，你需要把Commons XMLSchema放在classpath上。 如果Commons XMLSchema位于classpath上，那么之前定义的`<dynamic-wsdl>`元素将找到所有的XSD include和import，并将它们作为单个XSD内联在WSDL中。 这极大地简化了模式的部署，这仍然可以单独编辑它们。
+
+> 尽管从XSD在运行时创建WSDL非常方便，但这种方法仍然存在一些缺点。 首先，尽管我们试图在版本之间保持WSDL生成过程的一致性，但仍然有可能发生变化（轻微）。 其次，其生成有点慢，尽管一旦生成，WSDL被缓存供以后参考。
+
+因此，建议在项目开发阶段只使用`<dynamic-wsdl>`。 然后，我们建议使用浏览器下载生成的WSDL，将其存储在项目中，并使用`<static-wsdl>`公开它。 这是确保WSDL不会随着时间而改变的唯一方法。
+
+###### 5.3.2. Wiring up Spring-WS in a `DispatcherServlet`
+
+作为`MessageDispatcherServlet`的替代方案，您可以在标准的Spring-Web MVC `DispatcherServlet`中加载一个`MessageDispatcher`。 默认情况下，`DispatcherServlet`只能委托给`Controller`处理，但我们可以通过向Servlet的Web application context添加`WebServiceMessageReceiverHandlerAdapter`来告诉它委托给`MessageDispatcher`去处理：
+
+```xml
+<beans>
+
+    <bean class="org.springframework.ws.transport.http.WebServiceMessageReceiverHandlerAdapter"/>
+
+    <bean class="org.springframework.web.servlet.handler.SimpleUrlHandlerMapping">
+        <property name="defaultHandler" ref="messageDispatcher"/>
+    </bean
+
+    <bean id="messageDispatcher" class="org.springframework.ws.soap.server.SoapMessageDispatcher"/>
+
+    ...
+
+    <bean class="org.springframework.web.servlet.mvc.method.annotation.RequestMappingHandlerAdapter"/>
+
+</beans>
+```
