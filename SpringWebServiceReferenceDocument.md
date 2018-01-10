@@ -751,6 +751,7 @@ public class StubHumanResourceService implements HumanResourceService {
 
 
 
+<<<<<<< HEAD
 ### 二、参考文档
 
 参考文档的这一部分详细介绍了构成Spring Web Services的各个组件。 包括了[一章](https://docs.spring.io/spring-ws/docs/2.4.2.RELEASE/reference/#common)讨论客户端和服务器端的通用部分，一章讨论[编写服务器端WS](https://docs.spring.io/spring-ws/docs/2.4.2.RELEASE/reference/#server)，一章讨论如何在[客户端使用Web服务](https://docs.spring.io/spring-ws/docs/2.4.2.RELEASE/reference/#client)，以及一章讨论如何使用[WS-Security](https://docs.spring.io/spring-ws/docs/2.4.2.RELEASE/reference/#security)。
@@ -794,3 +795,374 @@ SaajSoapMessageFactory使用带有附件API的SOAP来创建SoapMessage实现。 
 | BEA WebLogic 9     | 1.1/1.21         |
 | IBM WebSphere 6    | 1.2              |
 | SUN Glassfish 1    | 1.3              |
+=======
+另外，Java SE 6包含了SAAJ 1.3。 你像下面这样声明一个SaajSoapMessageFactory：
+
+```xml
+<bean id="messageFactory" class="org.springframework.ws.soap.saaj.SaajSoapMessageFactory" />
+```
+
+> **SAAJ**基于 DOM, the Document Object Model. 这表示所有SOAP信息都存储与**内存**中. 对于很大的SOAP信息, 这可能不是非常高性能的. 这种情况下, `AxiomSoapMessageFactory`会更实用.
+
+*AxiomSoapMessageFactory*
+
+`AxiomSoapMessageFactory` 使用AXis 2 Object Model 来实现`SoapMessage`. **AXIOM**基于 **StAX**, the Streaming API for XML（XML的流式API）. StAX为读取XML消息提供了一个基于拉（pull）机制，这种机制对于处理大的信息具有更高的效率。
+
+要提高`AxiomSoapMessageFactory`的读取性能，可以将`payloadCaching`属性设置为false（默认值为true）。 这将直接从套接字流中读取SOAP主体的内容。 启用此设置时，只能读取一次有效负载（payload）。 这意味着你必须确保消息的任何预处理（记录等）不会消耗(consume)它。
+
+你可以想下面这样使用`AxiomSoapMessageFactory`:
+
+```xml
+<bean id="messageFactory" class="org.springframework.ws.soap.axiom.AxiomSoapMessageFactory">
+    <property name="payloadCaching" value="true"/>
+</bean>
+```
+
+除了有效载荷缓存外，**AXIOM**还支持`StreamingWebServiceMessage`中定义的完整的流消息。 这意味着负载（payload）可以直接设置在响应消息上，而不是写入DOM树或缓冲区。
+
+**AXIOM**的完整流处理是当一个处理器(handler)返回支持JAXB2的对象时才会使用的。 它会自动设置这个编组对象(marshalled object)到响应消息中，并在响应发送时写出到外发套接字流中。
+
+有关完整流式传输的更多信息，请参阅StreamingWebServiceMessage和StreamingPayload的类级Javadoc。
+
+<font color='red'>SOAP 1.1 or 1.2</font>
+
+SaajSoapMessageFactory和AxiomSoapMessageFactory都有一个soapVersion属性，您可以在其中注入一个SoapVersion常量。 默认情况下，版本是1.1，但是可以像这样设置为1.2：
+
+```xml
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:util="http://www.springframework.org/schema/util"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+       http://www.springframework.org/schema/beans/spring-beans-2.0.xsd
+       http://www.springframework.org/schema/util
+       http://www.springframework.org/schema/util/spring-util-2.0.xsd">
+
+    <bean id="messageFactory" class="org.springframework.ws.soap.saaj.SaajSoapMessageFactory">
+        <property name="soapVersion">
+            <util:constant static-field="org.springframework.ws.soap.SoapVersion.SOAP_12"/>
+        </property>
+    </bean>
+
+</beans>
+```
+
+上面的示例中, 我们定义了一个 只接受**SOAP** 1.2 messages的`SaajSoapMessageFactory`  .
+
+> 尽管两种版本的**SOAP**在格式上都非常相似，但1.2版本并不向下兼容1.1版本，因为它使用了不同的XML命名空间。 **SOAP** 1.1和1.2之间的其他主要差异包括Fault的不同结构，以及`SOAPAction` HTTP头被因为效率问题而被弃用，但他们实际上还是可以使用。
+>
+> 使用SOAP版本号或WS- *规范版本号通常需要注意的一个重要事项是，最新版本的规范通常不是最流行的版本。 对于SOAP，这意味着目前最好的版本是1.1。 1.2版可能会在未来更受欢迎，但是目前1.1是最安全的选择。
+
+###### 4.1.4 `MessageContext`
+
+通常情况下，消息是成对的：一个请求对应一个响应。 在客户端创建一个请求，通过一些传输将请求发送到服务器端，在该服务器端生成响应。 这个响应被发送回客户端，在那里被读取。
+
+在Spring Web Services中，这样的对话包含在`MessageContext`中，它具有获取请求和响应消息的属性。 在客户端，MessageContext由`WebServiceTemplate`创建。 在服务器端，MessageContext是从传输特定的输入流中读取的。 例如，在HTTP中，它是从`HttpServletRequest`中读取的，并将响应写回到`HttpServletResponse`中。
+
+##### 4.2 `TransportContext`
+
+SOAP协议的一个关键属性是它试图与传输无关。 这就是为什么Spring-WS不支持通过HTTP请求URL将消息映射到端点（endpoints），而是通过消息内容映射。
+
+但是，有时需要在客户端或服务器端访问底层传输(underlying transport)。 为此，Spring Web Services提供了`TransportContext`。 传输上下文（transport context）允许访问底层的`WebServiceConnection`，它通常是服务器端的`HttpServletConnection`; 或客户端的`HttpUrlConnection`或`CommonsHttpConnection`。 例如，您可以在服务器端点（server-side endpoint）或拦截器中(interceptor)获取当前请求的IP地址，如下所示：
+
+```java
+TransportContext context = TransportContextHolder.getTransportContext();
+HttpServletConnection connection = (HttpServletConnection )context.getConnection();
+HttpServletRequest request = connection.getHttpServletRequest();
+String ipAddress = request.getRemoteAddr();
+```
+
+##### 4.3 Handling XML With XPath
+
+XPath是处理XML文档最好的方法之一 . 引自[[effective-xml\]](https://docs.spring.io/spring-ws/docs/2.4.2.RELEASE/reference/#effective-xml), 第35条:
+
+> XPath is a fourth generation declarative language that allows you to specify which nodes you want to process without specifying exactly how the processor is supposed to navigate to those nodes. XPath’s data model is very well designed to support exactly what almost all developers want from XML. For instance, it merges all adjacent text including that in CDATA sections, allows values to be calculated that skip over comments and processing instructions` and include text from child and descendant elements, and requires all external entity references to be resolved. In practice, XPath expressions tend to be much more robust against unexpected but perhaps insignificant changes in the input document.
+>
+> ​								— Elliotte Rusty Harold
+
+Spring Web Services有两种在应用程序中使用XPath的方法：其中，XpathExpression更快速，而XPathTemplate更灵活。
+
+###### 4.3.1 `XPathExpression`
+
+XPathExpression是对编译的XPath表达式（如Java 5 中的javax.xml.xpath.XPathExpression或Jaxen的XPath类）的抽象。 要在应用程序上下文中构建表达式，需要使用XPathExpressionFactoryBean。下面有一个使用这个工厂bean的例子：
+
+```xml
+<beans xmlns="http://www.springframework.org/schema/beans"
+       xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+       xsi:schemaLocation="http://www.springframework.org/schema/beans
+          http://www.springframework.org/schema/beans/spring-beans-2.0.xsd">
+
+    <bean id="nameExpression" class="org.springframework.xml.xpath.XPathExpressionFactoryBean">
+        <property name="expression" value="/Contacts/Contact/Name"/>
+    </bean>
+
+    <bean id="myEndpoint" class="sample.MyXPathClass">
+        <constructor-arg ref="nameExpression"/>
+    </bean>
+
+</beans>
+```
+
+上面的表达式不使用名称空间，但是我们可以使用factory bean的名称空间属性来设置它们。 表达式可以在代码中使用如下：
+
+```java
+package sample;
+
+public class MyXPathClass {
+
+    private final XPathExpression nameExpression;
+
+    public MyXPathClass(XPathExpression nameExpression) {
+        this.nameExpression = nameExpression;
+    }
+
+    public void doXPath(Document document) {
+        String name = nameExpression.evaluateAsString(document.getDocumentElement());
+        System.out.println("Name: " + name);
+    }
+
+}
+```
+
+为了更灵活的方法，你可以使用一个`NodeMapper`，它类似于Spring的JDBC中的`RowMapper`。 以下示例显示了我们如何使用它：
+
+```java
+package sample;
+
+public class MyXPathClass  {
+
+   private final XPathExpression contactExpression;
+
+   public MyXPathClass(XPathExpression contactExpression) 	{
+      this.contactExpression = contactExpression;
+   }
+
+   public void doXPath(Document document) {
+      List contacts = contactExpression.evaluate(document,
+        new NodeMapper() {
+           public Object mapNode(Node node, int nodeNum) throws DOMException {
+              Element contactElement = (Element) node;
+              Element nameElement = (Element) contactElement.getElementsByTagName("Name").item(0);
+              Element phoneElement = (Element) contactElement.getElementsByTagName("Phone").item(0);
+              return new Contact(nameElement.getTextContent(), phoneElement.getTextContent());
+           }
+        });
+      PlainText Section qName:lineannotation level:5, chunks:[// do something with list of Contact objects] attrs:[:]
+   }
+}
+```
+
+与Spring JDBC中的`RowMapper`映射类似，每个结果节点(result node)都使用匿名内部类进行映射。 在这种情况下，我们创建一个`Contact`对象，稍后我们会使用它.
+
+4.3.2 `XPathTemplate`
+
+**XPathExpression**仅允许您评估一个预编译的表达式。 **XpathTemplate**更灵活，但速度更慢。 这个类遵循Spring中通用的模板模式（JdbcTemplate，JmsTemplate等）。 下面是一个例子：
+
+```java
+package sample;
+
+public class MyXPathClass {
+
+    private XPathOperations template = new Jaxp13XPathTemplate();
+
+    public void doXPath(Source source) {
+        String name = template.evaluateAsString("/Contacts/Contact/Name", request);
+        // do something with name
+    }
+
+}
+```
+
+##### 4.4. 信息日志和追溯(Message Logging and Tracing)
+
+在开发或调试Web服务时，在（SOAP）消息到达时或者在发送之前查看（SOAP）消息的内容是非常有用的。 Spring Web Services通过标准的Commons Logging接口提供了这个功能
+
+> 确保使用Commons Logging version 1.1或更高版本。 早期版本有类加载问题，不能与Log4J TRACE级别集成。
+
+要记录所有服务器端消息，只需将`org.springframework.ws.server.MessageTracing`记录器设置为DEBUG或TRACE级别即可。 在调试级别上，只记录净荷根元素; 在TRACE级别，整个消息内容。 如果您只想记录发送的消息，请使用`org.springframework.ws.server.MessageTracing.sent`记录器; 或`org.springframework.ws.server.MessageTracing.received`记录收到的消息。
+
+在客户端，存在类似的记录器：`org.springframework.ws.client.MessageTracing.sent`和`org.springframework.ws.client.MessageTracing.received`。
+
+下面是log4j.properties配置示例，记录客户端发送的消息的完整内容，以及客户端收到的消息的唯一有效负载根元素。 在服务器端，记录有效负载根用于发送和接收的消息：
+
+```properties
+log4j.rootCategory=INFO, stdout
+log4j.logger.org.springframework.ws.client.MessageTracing.sent=TRACE
+log4j.logger.org.springframework.ws.client.MessageTracing.received=DEBUG
+
+log4j.logger.org.springframework.ws.server.MessageTracing=DEBUG
+
+log4j.appender.stdout=org.apache.log4j.ConsoleAppender
+log4j.appender.stdout.layout=org.apache.log4j.PatternLayout
+log4j.appender.stdout.layout.ConversionPattern=%p [%c{3}] %m%n
+```
+
+下面是这个配置的一个典型输出：
+
+```
+TRACE [client.MessageTracing.sent] Sent request [<SOAP-ENV:Envelope xmlns:SOAP-ENV="...
+DEBUG [server.MessageTracing.received] Received request [SaajSoapMessage {http://example.com}request] ...
+DEBUG [server.MessageTracing.sent] Sent response [SaajSoapMessage {http://example.com}response] ...
+DEBUG [client.MessageTracing.received] Received response [SaajSoapMessage {http://example.com}response] ...
+```
+
+
+
+#### 5 使用Spring-WS创建 Web service 
+
+##### 5.1简介
+
+Spring-WS的服务器侧的支持是围绕着一个`MessageDispatcher`设计的，这个`MessageDispather`将进入的消息分发到端点，具有可配置的端点映射（end mappings)，响应生成(response generation)和端点拦截(endpoint interception)。 端点通常使用`@Endpoint`注释进行注释，并具有一个或多个处理方法(handling methods)。 这些方法通过检查部分消息（通常是负载(payload)）来处理传入的XML请求消息，并创建某种响应。 您可以使用另一个注释（通常是@PayloadRoot）来注释请求的方法，以指明它可以处理的消息类型。
+
+Spring-WS的XML处理非常灵活。 端点可以从Spring-WS支持的大量XML处理库中进行选择，包括DOM系列（W3C DOM，JDOM，dom4j和XOM），如果想要更高的性能可以使用SAX或StAX，想从消息中提取信息可以使用XPath，或者 编组（marshalling）技术（JAXB，Castor，XMLBeans，JiBX或XStream）将XML转换为对象，或者将对象转换为XML。
+
+##### 5.2 `MessageDispatcher`
+
+Spring-WS的服务器端是围绕着将传入的XML消息分发到端点的中心类（`MessageDispather`）来设计的。 Spring-WS的`MessageDispatcher`非常灵活，只要可以在Spring IoC容器中配置，就可以使用任何类作为端点。 从某种意义上说，message dispatcher 类似于Spring的`DispatcherServlet`，即Spring Web MVC中使用的“前端控制器(Front Controller)”。
+
+`MessageDispatcher`的处理和调度流程如下图所示。
+
+![序列图](./image/sequence.png)
+
+当`MessageDispatcher` 开始使用，一个请求进入该Dispather，然后`MessageDispatcher`开始处理该请求。 下面的列表描述了由`MessageDispatcher`处理时请求所经历的完整过程：
+
+1. 使用配置过的EndpointMapping（s）搜索适当的端点。 如果找到端点，则将执行与端点(预处理器(pre-processors)，后处理器(post-processors)和端点(endpoints))相关联的调用链以创建响应。
+2. 为端点(`endPoint`)寻找一个合适的适配器(`adpter`).  `MessageDispatcher` 将dialing这个适配器以调用端点(endpoint)的方法。
+3. 如果返回响应，则发送它。 如果没有响应被返回（这可能是由于预处理器或后置处理器拦截了请求，比如出于安全原因），则不发送响应。
+
+在处理请求期间抛出的异常被在应用程序上下文中声明的任何端点异常解析器(resolvers)所取代。 通过使用这些异常解析器，您可以定义自定义行为（例如返回SOAP错误），以防引发这些异常。
+
+`MessageDispatcher`有几个属性，分别用于设置端点适配器(endpoint adapters)，映射(mapping)，异常解析器(exception resolvers)。 但是，设置这些属性不是必须的，因为dispather将自动检测所有这些在应用程序上下文中注册了的类型。 只有当需要被覆盖时，才应该设置这些属性。
+
+ message dispatcher在 [message context](https://docs.spring.io/spring-ws/docs/2.4.2.RELEASE/reference/#message-context)上运行，而不是在特定的输入流和输出流上传输。 因此，特定传输方式的请求需要读入一个`MessageContext` 中。 对于HTTP，可以通过一个`WebServiceMessageReceiverHandlerAdapter`（它是一个Spring Web `HandlerInterceptor`）完成，因此MessageDispatcher可以被加载到一个标准的DispatcherServlet中。 有一个更方便的方法来做到这一点，请参见[`MessageDispatcherServlet`](https://docs.spring.io/spring-ws/docs/2.4.2.RELEASE/reference/#message-dispatcher-servlet)。
+
+##### 5.3 Transports
+
+Spring Web Services 支持多种传输协议. 其中最常见的是 HTTP 传输, SWS为其定义了一种特殊类型的servlet, 它也可以通过JMS和Email进行传输。
+
+###### 5.3.1 `MessageDispatcherServlet`
+
+`MessageDispatcherServlet`是一个标准的`Servlet`，他是标准的Spring Web `DispatcherServlet` 的一个扩展，他包装了一个`MessageDispatcher`。 因此，它将以下接口合而为一：`MessageDispatcher`，它遵循与前一节中所述相同的请求处理流程； `Servlet`，`MessageDispatcherServlet`必须在你web应用中的web.xml中进行配置。你想让 `MessageDispatcherServlet` 处理的请求也必须使用同一web.xml文件中的URL映射。 这是标准的Java EE servlet配置; 下面是一个`MessageDispatcherServlet`声明和映射的例子。
+
+```xml
+<web-app>
+
+    <servlet>
+        <servlet-name>spring-ws</servlet-name>
+        <servlet-class>org.springframework.ws.transport.http.MessageDispatcherServlet</servlet-class>
+        <load-on-startup>1</load-on-startup>
+    </servlet>
+
+    <servlet-mapping>
+        <servlet-name>spring-ws</servlet-name>
+        <url-pattern>/*</url-pattern>
+    </servlet-mapping>
+
+</web-app>
+```
+
+在上面的例子中，所有请求都将由'spring-ws' `MessageDispatcherServlet`处理。 这只是设置Spring Web服务的第一步，因为Spring-WS框架使用的各种组件bean也需要配置; 这个配置由标准的Spring XML `<bean />`定义组成。 由于`MessageDispatcherServlet`是一个标准的Spring `DispatcherServlet`，因此它将在您的Web应用程序的`WEB-INF`目录中查找名为 *[servlet-name] -servlet.xml* 的文件，并在Spring容器中创建定义的bean。 在上面的例子中，这意味着它查找'/WEB-INF/spring-ws-servlet.xml'。 这个文件将包含所有的Spring Web Services bean，如端点(endpoints)，marshallers等。
+
+作为`web.xml`的替代方案，如果您正在Servlet 3+环境中运行，则可以以编程方式配置Spring-WS。 为此，Spring-WS提供了许多抽象基类，它们扩展了Spring框架中的`WebApplicationInitializer`接口。 如果您还在为您的bean定义使用`@Configuration`类，那么最好是扩展`AbstractAnnotationConfigMessageDispatcherServletInitializer`，如下所示：
+
+```java
+public class MyServletInitializer
+    extends AbstractAnnotationConfigMessageDispatcherServletInitializer {
+
+    @Override
+    protected Class<?>[] getRootConfigClasses() {
+        return new Class[]{MyRootConfig.class};
+    }
+
+    @Override
+    protected Class<?>[] getServletConfigClasses() {
+        return new Class[]{MyEndpointConfig.class};
+    }
+
+}
+```
+
+在上面的例子中，我们告诉Spring可以在`MyEndpointConfig`类（它是一个@Configuration类）中找到端点(endpoint)bean的定义。 其他的bean定义（通常是服务，存储库等）可以在`MyRootConfig`类中找到。 默认情况下，`AbstractAnnotationConfigMessageDispatcherServletInitializer`将servlet映射到两个模式：`/ services`和`* .wsdl`，尽管这可以通过覆盖`getServletMappings（）`方法来改变。 有关`MessageDispatcherServlet`的编程配置的更多详细信息，请参阅`AbstractMessageDispatcherServletInitializer`和`AbstractAnnotationConfigMessageDispatcherServletInitializer`的Javadoc。
+
+<font color="red" >Automatic WSDL exposure</font>
+
+`MessageDispatcherServlet`将自动检测在Spring容器中定义的任何`WsdlDefinition` bean。 所有检测到的`WsdlDefinition` bean也将通过`WsdlDefinitionHandlerAdapter`公开; 这是一个非常方便的方法，只需定义一些bean就可以将WSDL公开给客户端。
+
+举个栗子，考虑以下在Spring-WS配置文件（/ WEB-INF / [servlet-name] -servlet.xml）中定义的`<static-wsdl>` bean。 注意'id'属性的值，因为这将在暴露WSDL时使用。
+
+```xml
+<sws:static-wsdl id="orders" location="orders.wsdl"/>
+```
+
+或者在@Configuration中有@Bean注解的方法:
+
+```java
+@Bean
+public SimpleWsdl11Definition orders() {
+	return new SimpleWsdl11Definition(new ClassPathResource("orders.wsdl"));
+}
+```
+
+然后，可以通过`GET`请求访问在classpath的“orders.wsdl”文件中定义的WSDL，以便对以下表单的URL（根据需要替换主机，端口和servlet上下文路径）进行访问。
+
+```url
+http://localhost:8080/spring-ws/orders.wsdl
+```
+
+> 所有的`WsdlDefinition` bean定义都由`MessageDispatcherServlet`以它们的bean名称加上后缀`.wsdl`公开。 因此，如果bean名称是`echo`，主机名是“server”，并且Servlet上下文（war name）是“spring-ws”，则WSDL可以通过[http://server/spring-ws/echo.wsdl](http://server/spring-ws/echo.wsdl)获得。
+
+`MessageDispatcherServlet`(或者更确切的说是`WsdlDefinitionHandlerAdapter`)的另一个很好的功能是它能够转换它公开的所有WSDL的"location"的值，以映射传入请求的URL。
+
+请注意，这个“位置”转换功能默认是关闭的。要开启此功能，只需要为MessageDispatcherServlet指定一个初始化参数，如下所示：
+
+```xml
+<web-app>
+
+  <servlet>
+    <servlet-name>spring-ws</servlet-name>
+    <servlet-class>org.springframework.ws.transport.http.MessageDispatcherServlet</servlet-class>
+    <init-param>
+      <param-name>transformWsdlLocations</param-name>
+      <param-value>true</param-value>
+    </init-param>
+  </servlet>
+
+  <servlet-mapping>
+    <servlet-name>spring-ws</servlet-name>
+    <url-pattern>/*</url-pattern>
+  </servlet-mapping>
+
+</web-app>
+```
+
+如果使用`AbstractAnnotationConfigMessageDispatcherServletInitializer`，则启用转换与重写`isTransformWsdlLocations（）`方法以返回true一样简单。
+
+请参阅`WsdlDefinitionHandlerAdapter`的类级别Javadoc，以了解有关整个转换过程的更多信息。
+
+作为手动编写WSDL，并且使用`<static-wsdl>`公开它的替代方法，Spring Web Services也可以从XSD模式生成一个WSDL。 这是 [Publishing the WSDL](https://docs.spring.io/spring-ws/docs/2.4.2.RELEASE/reference/#tutorial-publishing-wsdl)中显示的方法。 下面的应用程序上下文片段展示了如何创建这样一个动态的WSDL文件：
+
+```xml
+<sws:dynamic-wsdl id="orders"
+    portTypeName="Orders"
+    locationUri="http://localhost:8080/ordersService/">
+  <sws:xsd location="Orders.xsd"/>
+</sws:dynamic-wsdl>
+```
+
+或者,声明为 `@Bean` 的方法:
+
+```java
+@Bean
+public DefaultWsdl11Definition orders() {
+    DefaultWsdl11Definition definition = new DefaultWsdl11Definition();
+    definition.setPortTypeName("Orders");
+    definition.setLocationUri("http://localhost:8080/ordersService/");
+    definition.setSchema(new SimpleXsdSchema(new ClassPathResource("echo.xsd")));
+
+    return definition;
+}
+```
+
+<dynamic-wsdl>元素依赖于`DefaultWsdl11Definition`类。 此定义类使用`org.springframework.ws.wsdl.wsdl11.provider`包中的WSDL providers ，并在第一次请求时使用`ProviderBasedWsdl4jDefinition`生成WSDL。 如果有必要扩展其实现机制，请参考这些类的Javadoc。
+
+`DefaultWsdl11Definition`（因此，<dynamic-wsdl>标记）使用约定从XSD模式构建WSDL。 它迭代架构中找到的所有`element`元素，并为所有元素创建消息。 接下来，它为所有以定义的请求或响应后缀结束的消息创建WSDL `operation`。 默认的请求后缀是`Request`; 默认响应后缀是`Response`，尽管这些可以通过分别在<dynamic-wsdl />上设置`requestSuffix`和`responseSuffix`属性来更改。 它还可以基于操作构建`portType`, `binding`, and `service`。
+>>>>>>> 添加SpringWebServiceReferenceDocument的图片两张，并且内容翻译至第五章。
