@@ -57,7 +57,7 @@ Spring-WS由多个模块组成，在本节的其余部分中将对其进行介�
 
 下图说明了Spring-WS模块以及它们之间的依赖关系。 箭头表示依赖关系，即Spring-WS Core依赖于Spring-XML和Spring 3及更高版本中的OXM模块。
 
-![spring-deps](./image/spring-deps.png)
+![spring-deps](image/spring-deps.png)
 
 ##### 1.3 支持的标准
 
@@ -1022,7 +1022,7 @@ Spring-WS的服务器端是围绕着将传入的XML消息分发到端点的中�
 
 `MessageDispatcher`的处理和调度流程如下图所示。
 
-![序列图](./image/sequence.png)
+![序列图](image/sequence.png)
 
 当`MessageDispatcher` 开始使用，一个请求进入该Dispather，然后`MessageDispatcher`开始处理该请求。 下面的列表描述了由`MessageDispatcher`处理时请求所经历的完整过程：
 
@@ -1175,7 +1175,7 @@ public DefaultWsdl11Definition orders() {
 
 因此，建议在项目开发阶段只使用`<dynamic-wsdl>`。 然后，我们建议使用浏览器下载生成的WSDL，将其存储在项目中，并使用`<static-wsdl>`公开它。 这是确保WSDL不会随着时间而改变的唯一方法。
 
-###### 5.3.2. Wiring up Spring-WS in a `DispatcherServlet`
+###### 5.3.2 Wiring up Spring-WS in a `DispatcherServlet`
 
 作为`MessageDispatcherServlet`的替代方案，您可以在标准的Spring-Web MVC `DispatcherServlet`中加载一个`MessageDispatcher`。 默认情况下，`DispatcherServlet`只能委托给`Controller`处理，但我们可以通过向Servlet的Web application context添加`WebServiceMessageReceiverHandlerAdapter`来告诉它委托给`MessageDispatcher`去处理：
 
@@ -1196,3 +1196,253 @@ public DefaultWsdl11Definition orders() {
 
 </beans>
 ```
+请注意，通过显式添加`WebServiceMessageReceiverHandlerAdapter`，dispathcer servlet不会加载默认的adapters，并且无法处理标准的Spring-MVC `@Controllers`。 因此，我们在最后添加l了`RequestMappingHandlerAdapter`。
+
+类似的方式，您也可以加载一个`WsdlDefinitionHandlerAdapter`以确保`DispatcherServlet`可以处理`WsdlDefinition`接口的实现：
+
+```xml
+<beans>
+
+    <bean class="org.springframework.ws.transport.http.WebServiceMessageReceiverHandlerAdapter"/>
+
+    <bean class="org.springframework.ws.transport.http.WsdlDefinitionHandlerAdapter"/>
+
+    <bean class="org.springframework.web.servlet.handler.SimpleUrlHandlerMapping">
+        <property name="mappings">
+           <props>
+             <prop key="*.wsdl">myServiceDefinition</prop>
+           </props>
+        </property>
+        <property name="defaultHandler" ref="messageDispatcher"/>
+    </bean>
+
+    <bean id="messageDispatcher" class="org.springframework.ws.soap.server.SoapMessageDispatcher"/>
+
+    <bean id="myServiceDefinition" class="org.springframework.ws.wsdl.wsdl11.SimpleWsdl11Definition">
+       <prop name="wsdl" value="/WEB-INF/myServiceDefintion.wsdl"/>
+    </bean>
+
+    ...
+
+</beans>
+```
+
+###### 5.3.3 JMS transport
+
+Spring Web Services通过 Spring 框架提供的 JMS 功能支持服务器端的JMS处理。 Spring Web Services提供了`WebServiceMessageListener`作为插件插入`MessageListenerContainer`。 这个消息监听器需要一个`WebServiceMessageFactory` 和 `MessageDispatcher`来操作。 以下一段配置展示了如何具体操作：
+
+```xml
+<beans>
+
+    <bean id="connectionFactory" class="org.apache.activemq.ActiveMQConnectionFactory">
+        <property name="brokerURL" value="vm://localhost?broker.persistent=false"/>
+    </bean>
+
+    <bean id="messageFactory" class="org.springframework.ws.soap.saaj.SaajSoapMessageFactory"/>
+
+    <bean class="org.springframework.jms.listener.DefaultMessageListenerContainer">
+        <property name="connectionFactory" ref="connectionFactory"/>
+        <property name="destinationName" value="RequestQueue"/>
+        <property name="messageListener">
+            <bean class="org.springframework.ws.transport.jms.WebServiceMessageListener">
+                <property name="messageFactory" ref="messageFactory"/>
+                <property name="messageReceiver" ref="messageDispatcher"/>
+            </bean>
+        </property>
+    </bean>
+
+    <bean id="messageDispatcher" class="org.springframework.ws.soap.server.SoapMessageDispatcher">
+        <property name="endpointMappings">
+            <bean
+              class="org.springframework.ws.server.endpoint.mapping.PayloadRootAnnotationMethodEndpointMapping">
+                <property name="defaultEndpoint">
+                    <bean class="com.example.MyEndpoint"/>
+                </property>
+            </bean>
+        </property>
+    </bean>
+</beans>
+```
+
+###### 5.3.4 Email transport
+
+除了HTTP和JMS之外，Spring Web Services还提供了服务器端的电子邮件处理功能。 这个功能是通过`MailMessageReceiver`类提供的。 该类监视POP3或IMAP文件夹，将电子邮件转换为`WebServiceMessage`，使用SMTP发送任何响应。 主机名称可以通过`storeUri`进行配置，它指示要监听请求代表的的邮件文件夹（典型的是POP3和IMAP文件夹）；而指示发送请求的服务器可以使用`transportUri`进行配置。
+
+`MailMessageReceiver`监视传入消息的方式如何使用插件式的策略进行配置呢？其使用的是`MonitoringStrategy`，默认情况下使用轮询策略(polling stategy)，即每5分钟轮询传入文件夹中的新邮件。 这个5分钟的间隔可以通过在Strategy上设置`pollingInterval`属性来更改。 默认情况下，所有的`MonitoringStrategy`的实现都会删除处理过的消息; 这可以通过设置`deleteMessages`属性来改变。
+
+轮询是一种非常低效的策略，作为轮询方法的替代方案，有一种使用IMAP **IDLE**的监控策略。 **IDLE**命令是IMAP电子邮件协议的可选扩展，它允许邮件服务器异步发送新的邮件更新到`MailMessageReceiver`。 如果使用支持IDLE命令的IMAP服务器，则可以将`ImapIdleMonitoringStrategy`设置到`monitoringStrategy`属性中。 除了支持服务器之外，还需要使用JavaMail 1.4.1或更高版本才能使用。
+
+以下一段配置显示了如何使用服务器端电子邮件设置，将默认轮询间隔覆盖为每30秒（30000毫秒）检查一次的值：
+
+```xml
+<beans>
+
+    <bean id="messageFactory" class="org.springframework.ws.soap.saaj.SaajSoapMessageFactory"/>
+
+    <bean id="messagingReceiver" class="org.springframework.ws.transport.mail.MailMessageReceiver">
+        <property name="messageFactory" ref="messageFactory"/>
+        <property name="from" value="Spring-WS SOAP Server &lt;server@example.com&gt;"/>
+        <property name="storeUri" value="imap://server:s04p@imap.example.com/INBOX"/>
+        <property name="transportUri" value="smtp://smtp.example.com"/>
+        <property name="messageReceiver" ref="messageDispatcher"/>
+        <property name="monitoringStrategy">
+            <bean class="org.springframework.ws.transport.mail.monitor.PollingMonitoringStrategy">
+                <property name="pollingInterval" value="30000"/>
+            </bean>
+        </property>
+    </bean>
+
+    <bean id="messageDispatcher" class="org.springframework.ws.soap.server.SoapMessageDispatcher">
+        <property name="endpointMappings">
+            <bean
+              class="org.springframework.ws.server.endpoint.mapping.PayloadRootAnnotationMethodEndpointMapping">
+                <property name="defaultEndpoint">
+                    <bean class="com.example.MyEndpoint"/>
+                </property>
+            </bean>
+        </property>
+    </bean>
+</beans>
+```
+
+###### 5.3.5 Embedded HTTP Server transport
+
+Spring Web Services提供基于Sun JRE 1.6 [HTTP server](http://java.sun.com/javase/6/docs/jre/api/net/httpserver/spec/index.html)的传输服务。 嵌入式HTTP服务器是一个易于配置的独立服务器。 它适用于传统servlet容器的更轻的替代方案。
+
+使用嵌入式HTTP服务器时，不需要外部部署描述文件（`web.xml`）。 您只需要定义一个服务器的实例并将其配置为处理传入的请求。 Core Spring Framework中的远程处理模块包含一个用于HTTP服务器的方便的factory bean ：`SimpleHttpServerFactoryBean`。 最重要的属性是contexts，它将context路径映射到相应的“ HttpHandler ”之上。
+
+Spring Web Services提供了2个`HttpHandler`的实现接口：`WsdlDefinitionHttpHandler`和`WebServiceMessageReceiverHttpHandler`。 前者将传入的GET请求映射到`WsdlDefinition`。 后者负责处理对Web服务消息的POST请求，因此需要`WebServiceMessageFactory`（通常是`SaajSoapMessageFactory`）和`WebServiceMessageReceiver`（通常是`SoapMessageDispatcher`）来完成其任务。
+
+为了和servlet尽量相似，`contexts` property在`web.xml`中起着servlet mapping的作用，而`WebServiceMessageReceiverHttpHandler`则相当于`MessageDispatcherServlet`。
+
+以下片段显示了HTTP服务器传输服务的简单配置示例：
+
+```xml
+<beans>
+
+    <bean id="messageFactory" class="org.springframework.ws.soap.saaj.SaajSoapMessageFactory"/>
+
+    <bean id="messageReceiver" class="org.springframework.ws.soap.server.SoapMessageDispatcher">
+        <property name="endpointMappings" ref="endpointMapping"/>
+    </bean>
+
+    <bean id="endpointMapping" class="org.springframework.ws.server.endpoint.mapping.PayloadRootAnnotationMethodEndpointMapping">
+        <property name="defaultEndpoint" ref="stockEndpoint"/>
+    </bean>
+
+    <bean id="httpServer" class="org.springframework.remoting.support.SimpleHttpServerFactoryBean">
+        <property name="contexts">
+            <map>
+                <entry key="/StockService.wsdl" value-ref="wsdlHandler"/>
+                <entry key="/StockService" value-ref="soapHandler"/>
+            </map>
+        </property>
+    </bean>
+
+    <bean id="soapHandler" class="org.springframework.ws.transport.http.WebServiceMessageReceiverHttpHandler">
+        <property name="messageFactory" ref="messageFactory"/>
+        <property name="messageReceiver" ref="messageReceiver"/>
+    </bean>
+
+    <bean id="wsdlHandler" class="org.springframework.ws.transport.http.WsdlDefinitionHttpHandler">
+        <property name="definition" ref="wsdlDefinition"/>
+    </bean>
+</beans>
+```
+
+###### 5.3.6 XMPP transport
+
+Spring Web Services 2.0 引入了对XMPP的支持, 也称之为 Jabber.这种支持基于 [Smack](https://www.igniterealtime.org/projects/smack/index.jsp) 库.
+
+Spring Web Services对XMPP的支持与其他传输服务非常相似：WebServiceTemplate对应XmppMessageSender，MessageDispatcher对应XmppMessageReceiver。
+
+以下示例显示如何设置服务器端XMPP组件：
+
+```xml
+<beans>
+
+    <bean id="messageFactory" class="org.springframework.ws.soap.saaj.SaajSoapMessageFactory"/>
+
+    <bean id="connection" class="org.springframework.ws.transport.xmpp.support.XmppConnectionFactoryBean">
+        <property name="host" value="jabber.org"/>
+        <property name="username" value="username"/>
+        <property name="password" value="password"/>
+    </bean>
+
+    <bean id="messagingReceiver" class="org.springframework.ws.transport.xmpp.XmppMessageReceiver">
+        <property name="messageFactory" ref="messageFactory"/>
+        <property name="connection" ref="connection"/>
+        <property name="messageReceiver" ref="messageDispatcher"/>
+    </bean>
+
+    <bean id="messageDispatcher" class="org.springframework.ws.soap.server.SoapMessageDispatcher">
+        <property name="endpointMappings">
+            <bean
+              class="org.springframework.ws.server.endpoint.mapping.PayloadRootAnnotationMethodEndpointMapping">
+                <property name="defaultEndpoint">
+                    <bean class="com.example.MyEndpoint"/>
+                </property>
+            </bean>
+        </property>
+    </bean>
+
+</beans>
+```
+
+##### 5.3.7. MTOM
+
+MTOM是向Web服务发送二进制数据的机制。 你可以看看[MTOM示例](https://github.com/spring-projects/spring-ws-samples/tree/master/mtom) 来尝试实现Spring WS。
+
+#### 5.4. Endpoints
+
+Endpoints是Spring-WS服务器端支持的核心概念。 Endpoints 提供了应用程序行为的访问方法，一般来说访问方法通常由业务服务接口定义。 endpoint 解释XML请求消息并使用该输入的信息来调用业务服务上的方法。 该服务调用的结果被表示为响应消息。 Spring-WS有各种各样的endpoint，这些endpoint使用各种各样的方式处理XML 信息来创建响应消息。
+
+您可以通过@Endpoint来注释一个类，表明他是一个endpoint。 在此类中，通过使用各种各样的参数类型（如DOM元素，JAXB2对象等）来定义处理传入XML请求的一个或多个方法。 您可以通过使用另一个注释（通常是@PayloadRoot）来指示某种方法可以处理的消息类型。
+
+我们看一下下面的一个示例endpoint：
+
+```java
+package samples;
+
+import org.w3c.dom.Element;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.ws.server.endpoint.annotation.Endpoint;
+import org.springframework.ws.server.endpoint.annotation.PayloadRoot;
+import org.springframework.ws.soap.SoapHeader;
+
+@Endpoint
+public class AnnotationOrderEndpoint {
+
+  private final OrderService orderService;
+
+  @Autowired                                         
+  public AnnotationOrderEndpoint(OrderService orderService) {
+      this.orderService = orderService;
+  }
+
+  @PayloadRoot(localPart = "order", namespace = "http://samples")
+  public void order(@RequestPayload Element orderElement) {                                    
+    Order order = createOrder(orderElement);
+    orderService.createOrder(order);
+  }
+
+  @PayloadRoot(localPart = "orderRequest", namespace = "http://samples")                       
+  @ResponsePayload
+  public Order getOrder(@RequestPayload OrderRequest orderRequest, SoapHeader header) {        
+    checkSoapHeaderForSomething(header);
+    return orderService.getOrder(orderRequest.getId());
+  }
+
+  ...
+
+}
+```
+
+1. 该类用@Endpoint注释标记为Spring-WS端点。
+
+2. 构造函数被 `@Autowired` 标注, 这样 `OrderService` 业务服务就被注入到了个这个endpoint中.
+
+3. ​
+
+   ​
