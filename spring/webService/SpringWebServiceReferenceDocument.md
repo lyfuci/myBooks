@@ -1529,4 +1529,116 @@ public void order(@RequestPayload Element orderElement) {
 
 处理方法通常具有一个或多个参数表示XML消息的各个部分。 通常，处理方法将有一个映射到负载的参数，当然，也可以映射到请求消息的其他部分，如SOAP头。 本部分将描述您可以在处理方法签名中使用的参数。
 
-要将参数映射到请求消息的负载，您需要使用@RequestPayload注释来注释此参数。 这个注解告诉Spring-WS需要被绑定到请求载荷中的参数。
+要将参数映射到请求消息的负载，您需要使用`@RequestPayload`注释来注释此参数。 这个注解告诉Spring-WS需要绑定信息到请求载荷的参数中。
+
+下表介绍了支持的参数类型。 它显示支持的类型，参数是否应该用@RequestPayload注释，以及任何附加的注意事项。
+
+| Name            | Supported parameter types                | `@RequestPayload`required? | Additional notes                         |
+| --------------- | ---------------------------------------- | -------------------------- | ---------------------------------------- |
+| TrAX            | `javax.xml.transform.Source` and sub-interfaces (`DOMSource`, `SAXSource`, `StreamSource`, and `StAXSource`) | Yes                        | Enabled by default.                      |
+| W3C DOM         | `org.w3c.dom.Element`                    | Yes                        | Enabled by default                       |
+| dom4j           | `org.dom4j.Element`                      | Yes                        | Enabled when dom4j is on the classpath.  |
+| JDOM            | `org.jdom.Element`                       | Yes                        | Enabled when JDOM is on the classpath.   |
+| XOM             | `nu.xom.Element`                         | Yes                        | Enabled when XOM is on the classpath.    |
+| StAX            | `javax.xml.stream.XMLStreamReader` and `javax.xml.stream.XMLEventReader` | Yes                        | Enabled when StAX is on the classpath.   |
+| XPath           | Any boolean, double, `String`, `org.w3c.Node`, `org.w3c.dom.NodeList`, or type that can be converted from a `String` by a Spring 3 [conversion service](http://static.springsource.org/spring/docs/3.0.x/spring-framework-reference/html/validation.html#core-convert), and that is annotated with `@XPathParam`. | No                         | Enabled by default, see [the section called `XPathParam`](https://docs.spring.io/spring-ws/docs/2.4.2.RELEASE/reference/#server-xpath-param). |
+| Message context | `org.springframework.ws.context.MessageContext` | No                         | Enabled by default.                      |
+| SOAP            | `org.springframework.ws.soap.SoapMessage`, `org.springframework.ws.soap.SoapBody`, `org.springframework.ws.soap.SoapEnvelope`, `org.springframework.ws.soap.SoapHeader`, and `org.springframework.ws.soap.SoapHeaderElement`s when used in combination with the `@SoapHeader`annotation. | No                         | Enabled by default.                      |
+| JAXB2           | Any type that is annotated with `javax.xml.bind.annotation.XmlRootElement`, and `javax.xml.bind.JAXBElement`. | Yes                        | Enabled when JAXB2 is on the classpath.  |
+| OXM             | Any type supported by a Spring OXM [`Unmarshaller`](http://static.springsource.org/spring/docs/3.0.x/spring-framework-reference/html/oxm.html#d0e26164). | Yes                        | Enabled when the `unmarshaller`attribute of `<sws:annotation-driven/>` is specified. |
+
+下面是一些合适的方法签名实例:
+
+```java
+public void handle(@RequestPayload Element element)
+```
+
+这个方法调用时将把请求消息的载荷作为DOM `org.w3c.dom.Element` 对象。
+
+```java
+public void handle(@RequestPayload DOMSource domSource, SoapHeader header)
+```
+
+这个方法将会把请求信息的负载当做`javax.xml.transform.dom.DOMSource` 时被调用，**header** 参数将会被绑定成SOAP头的请求信息。
+
+```java
+public void handle(@RequestPayload MyJaxb2Object requestObject, @RequestPayload Element element, Message messageContext)
+```
+
+这个方法将在请求消息的载荷被解组(unmarshalled)为一个`MyJaxb2Object`对象时（对象使用`@XmlRootElement`注解）被调用。 消息的负载也作为DOM `Element` 被给出。 整个[MessageContext](https://docs.spring.io/spring-ws/docs/2.4.2.RELEASE/reference/#message-context)作为第三个参数被传递。
+
+可见，定义处理方法签名时有很多选择。 甚至可以扩展这个机制，并支持你自己的参数类型。 具体请参阅`DefaultMethodEndpointAdapter`和`MethodArgumentResolver`的类级 Javadoc 。
+
+`@XPathParam`
+
+这个参数类型需要一些额外的解释：`@XPathParam`。 这里要说的是，您只需使用XPath表达式注释一个或多个方法参数，每个带这样注释的参数都将绑定到XPath表达式对应的信息上。 下面是一个例子：
+
+```java
+package samples;
+
+import javax.xml.transform.Source;
+
+import org.springframework.ws.server.endpoint.annotation.Endpoint;
+import org.springframework.ws.server.endpoint.annotation.Namespace;
+import org.springframework.ws.server.endpoint.annotation.PayloadRoot;
+import org.springframework.ws.server.endpoint.annotation.XPathParam;
+
+@Endpoint
+public class AnnotationOrderEndpoint {
+
+  private final OrderService orderService;
+
+  public AnnotationOrderEndpoint(OrderService orderService) {
+    this.orderService = orderService;
+  }
+
+  @PayloadRoot(localPart = "orderRequest", namespace = "http://samples")
+  @Namespace(prefix = "s", uri="http://samples")
+  public Order getOrder(@XPathParam("/s:orderRequest/@id") int orderId) {
+    Order order = orderService.getOrder(orderId);
+    // create Source from order and return it
+  }
+
+}
+```
+
+由于我们在XPath表达式中使用前缀`s`，因此我们必须将其绑定到http：// samples命名空间。 这是通过`@Namespace`注解完成的。 或者，我们可以将此注释放在类型级别上，以对所有处理方法使用相同的名称空间映射，这个注解甚至还能定义在包级别上（在`package-info.java`中）来对多个endpoint起作用。
+
+使用`@XPathParam`，你可以绑定所有XPath支持的类型到参数中：
+
+- `boolean` or `Boolean`
+- `double` or `Double`
+- `String`
+- `Node`
+- `NodeList`
+
+除了上面列表中的类型外，你还可以使用Spring 3转换服务可以从字符串转换的任何类型。
+
+<font color='red'>Handling method return types</font>
+
+要发送响应消息，处理方法需要指定返回类型。 如果不需要返回响应消息，该方法可以简单地声明一个`void`返回类型。 通常，返回类型用于创建响应消息的负载，但也可以映射到响应消息的其他部分。 本节将说明您可以在处理方法签名中使用的返回类型。
+
+要将返回值映射到响应消息的有效内容，您需要使用`@ResponsePayload`批注对方法进行注释。 这个注解告诉Spring-WS返回值需要绑定到响应负载。
+
+下表介绍了支持的返回类型。 它显示支持的类型，参数是否应该用@ResponsePayload注释，以及任何附加注释。
+
+| Name        | Supported return types                   | `@ResponsePayload`required? | Additional notes                         |
+| ----------- | ---------------------------------------- | --------------------------- | ---------------------------------------- |
+| No response | `void`                                   | No                          | Enabled by default.                      |
+| TrAX        | `javax.xml.transform.Source` and sub-interfaces (`DOMSource`, `SAXSource`, `StreamSource`, and `StAXSource`) | Yes                         | Enabled by default.                      |
+| W3C DOM     | `org.w3c.dom.Element`                    | Yes                         | Enabled by default                       |
+| dom4j       | `org.dom4j.Element`                      | Yes                         | Enabled when dom4j is on the classpath.  |
+| JDOM        | `org.jdom.Element`                       | Yes                         | Enabled when JDOM is on the classpath.   |
+| XOM         | `nu.xom.Element`                         | Yes                         | Enabled when XOM is on the classpath.    |
+| JAXB2       | Any type that is annotated with `javax.xml.bind.annotation.XmlRootElement`, and `javax.xml.bind.JAXBElement`. | Yes                         | Enabled when JAXB2 is on the classpath.  |
+| OXM         | Any type supported by a Spring OXM [`Marshaller`](http://static.springsource.org/spring/docs/3.0.x/spring-framework-reference/html/oxm.html#d0e26096). | Yes                         | Enabled when the `marshaller` attribute of `<sws:annotation-driven/>` is specified. |
+
+如您所见，定义处理方法签名时有很多可能性。 甚至可以扩展这个机制，并支持你自己的参数类型。 请参阅`DefaultMethodEndpointAdapter`和`MethodReturnValueHandler`的类级Javadoc。
+
+#### 5.5. Endpoint mappings
+
+Endpoint mappings负责将传入的消息映射到适当的endpoint。 有一些开箱即用的端点映射，例如`PayloadRootAnnotationMethodEndpointMapping`或`SoapActionAnnotationMethodEndpointMapping`，但我们先来看一下`EndpointMapping`的一般概念。
+
+`EndpointMapping`提供了一个`EndpointInvocationChain`，它包含匹配传入请求的端点，还可能包含将应用于请求和响应的端点拦截器列表。 当请求进入时，`MessageDispatcher`将把它交给Endpoint mapping，让它检查请求并提出一个适当的`EndpointInvocationChain`。 然后`MessageDispatcher`将调用Chain中的端点和所有拦截器。
+
+大多数Endpoint Mapping从AbstractEndpointMapping继承，它提供了一个“interceptors ”属性，这是要使用的拦截器列表。 EndpointInterceptors将在Intercepting requests - EndpointInterceptor interface中讨论。 此外，还有一个'defaultEndpoint'需要注意，这是在此Endpoint Mapping没有匹配的端点时使用的默认端点。
