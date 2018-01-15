@@ -1441,8 +1441,92 @@ public class AnnotationOrderEndpoint {
 
 1. 该类用@Endpoint注释标记为Spring-WS端点。
 
-2. 构造函数被 `@Autowired` 标注, 这样 `OrderService` 业务服务就被注入到了个这个endpoint中.
+2. 构造函数被 `@Autowired` 标注, 这样 `OrderService` 业务service就被注入到了个这个endpoint中.
 
-3. ​
+3. Order方法将Element作为参数，并使用`@RequestPayload`对其进行注释。 这意味着消息的负载将作为一个DOM元素传递到这个方法上。 该方法返回类型为void，表示没有响应消息返回。 有关endpoint的方法的更多信息，请参阅`@Endpoint`[处理方法](https://docs.spring.io/spring-ws/docs/2.4.2.RELEASE/reference/#server-atEndpoint-methods)。
+
+4. `getOrder`方法接受一个用`@RequestPayload`注解的`OrderRequest` 类型作为参数。 该参数是JAXB2支持的对象（因为使用了`@XmlRootElement`注解）。 这意味着消息的负载作为解组对象( unmarshalled object)）传递给了此方法。 这里还有一个参数是`SoapHeader`类型。 在调用时，该参数将包含请求消息的SOAP头。 本方法使用`@ResponsePayload` 进行了标注，表示返回值（Order类型）被用作响应消息的载荷。 有关端点方法的更多信息，请参阅`@Endpoint`[处理方法](https://docs.spring.io/spring-ws/docs/2.4.2.RELEASE/reference/#server-atEndpoint-methods)。
+
+5. endpoints的两个处理方法用`@PayloadRoot`进行了标记，表明该方法分别可以处理什么类型的请求消息：具有`orderRequest`  local name和http://samples 名称空间URI的请求，将调用`getOrder`方法; 具有`order` local name的请求的order方法。 有关`@PayloadRoot`的更多信息，请参阅[Endpoint映射](https://docs.spring.io/spring-ws/docs/2.4.2.RELEASE/reference/#server-endpoint-mapping)。
 
    ​
+
+为了支持`@Endpoint`和相关的Spring-WS注解，您需要将以下内容添加到Spring应用程序上下文中：
+
+```xml
+<beans xmlns="http://www.springframework.org/schema/beans"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:sws="http://www.springframework.org/schema/web-services"
+  xsi:schemaLocation="http://www.springframework.org/schema/beans
+      http://www.springframework.org/schema/beans/spring-beans.xsd
+    http://www.springframework.org/schema/web-services
+      http://www.springframework.org/schema/web-services/web-services.xsd">
+
+  <sws:annotation-driven />
+
+</beans>
+```
+
+或者, 假如你使用 `@Configuration` 而不是Spring的XML配置, you can annotate your configuration class with `@EnableWs`, like so:
+
+```java
+@EnableWs//this line is the key.
+@Configuration
+public class EchoConfig {
+
+    // @Bean definitions go here
+
+}
+```
+
+要自定义`@EnableWs`配置，您可以重写实现`WsConfigurer`接口，而扩展`WsConfigurerAdapter`类将会是一个更好的选择。 例如：
+
+```java
+@Configuration
+@EnableWs
+@ComponentScan(basePackageClasses = { MyConfiguration.class })
+public class MyConfiguration extends WsConfigurerAdapter {
+
+  @Override
+  public void addInterceptors(List<EndpointInterceptor> interceptors) {
+    interceptors.add(new MyInterceptor());
+  }
+
+  @Override
+  public void addArgumentResolvers(List<MethodArgumentResolver> argumentResolvers) {
+    argumentResolvers.add(new MyArgumentResolver());
+  }
+
+  // More overridden methods ...
+}
+```
+
+在接下来的几节中，给出了`@Endpoint`编程模型的更详细的描述。
+
+> 与任何其他Spring Bean一样，Endpoints的默认作用域是单例(single)模式的，即每个容器创建一个bean定义的实例。 单例模式意味着多个线程可以同时使用它，所以endpoint必须是线程安全的。 如果你想使用一个不同的作用域，比如prototype，请参考[Spring Reference文档](http://static.springframework.org/spring/docs/2.5.x/reference/beans.html#beans-factory-scopes)。
+
+请注意，Spring-WS中提供的所有抽象基类都是线程安全的，如果不是在类级别的Javadoc中将另有说明。
+
+###### 5.4.1. `@Endpoint` handling methods
+
+为了使endpoint确实处理到传入的XML消息，它需要有一个或多个处理方法。 处理方法可以使用多种多样的参数和返回类型，但通常它们有一个参数将包含消息载荷(message payload)，并且返回响应消息的载荷（如果有的话）。 在本节中您将了解哪些参数和返回类型是受支持的。
+
+为了申明方法可以处理的消息类型，通常使用@PayloadRoot或@SoapAction注释来标注方法。 您将在端点[endpoint mappings](https://docs.spring.io/spring-ws/docs/2.4.2.RELEASE/reference/#server-endpoint-mapping)中了解有关这些注释的更多信息。
+
+下面是一个处理方法的示例：
+
+```java
+@PayloadRoot(localPart = "order", namespace = "http://samples")
+public void order(@RequestPayload Element orderElement) {
+  Order order = createOrder(orderElement);
+  orderService.createOrder(order);
+}
+```
+
+`Order`方法将`Element`类型作为参数，使用`@RequestPayload`进行注释。 这意味着消息的有效载荷作为一个DOM元素在这个方法上传递。 该方法有一个`void`返回类型，表示没有响应消息发送。
+
+<font color='red'>Handling method parameters</font>
+
+处理方法通常具有一个或多个参数表示XML消息的各个部分。 通常，处理方法将有一个映射到负载的参数，当然，也可以映射到请求消息的其他部分，如SOAP头。 本部分将描述您可以在处理方法签名中使用的参数。
+
+要将参数映射到请求消息的负载，您需要使用@RequestPayload注释来注释此参数。 这个注解告诉Spring-WS需要被绑定到请求载荷中的参数。
